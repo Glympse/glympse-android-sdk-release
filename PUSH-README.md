@@ -14,7 +14,7 @@ To add support for Firebase Cloud Messaging usage in the Glympse API, the Glymps
 ```
 dependencies {
   ...
-  implementation 'com.glympse:glympseapi-push:2.42.164'
+  implementation 'com.glympse:glympseapi-push:2.42.163'
   implementation "com.google.firebase:firebase-messaging:17.3.0"
   ...
 }
