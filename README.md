@@ -12,8 +12,8 @@ repositories {
 Add this dependency to your build.gradle
 ```
 dependencies {
-    implementation 'com.glympse:glympseapi:2.42.165'
+    implementation 'com.glympse:glympseapi:2.45.165'
     // Optional - Glympse Push library
-    implementation 'com.glympse:glympseapi-push:2.42.165'
+    implementation 'com.glympse:glympseapi-push:2.45.165'
 }
 ```
