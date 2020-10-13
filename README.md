@@ -12,8 +12,18 @@ repositories {
 Add this dependency to your build.gradle
 ```
 dependencies {
-    implementation 'com.glympse:glympseapi:2.45.165'
+    // Glympse Core SDK
+    implementation 'com.glympse:glympseapi:2.+'
+    // Glympse En Route SDK
+    implementation 'com.glympse:enrouteapi:2.+'
+    
     // Optional - Glympse Push library
-    implementation 'com.glympse:glympseapi-push:2.45.165'
+    implementation 'com.glympse:glympseapi-push:2.+'
+    // Optional - Glympse Map control
+    implementation 'com.glympse:glympseapi-map:2.+'
+    // Optional - Glympse UI controls
+    implementation 'com.glympse:glympseapi-controls:2.+'
+    // Optional - Glympse contacts UI controls
+    implementation 'com.glympse:glympseapi-contacts:2.+'
 }
 ```
