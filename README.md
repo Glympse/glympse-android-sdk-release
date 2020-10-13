@@ -1,4 +1,12 @@
-# glympse-android-sdk-release
+# Glympse Android SDK Maven repository
+
+This repository hosts the Android version of all Glympse SDKs. SDKs may also be downloaded from https://developer.glympse.com/.
+
+## Which SDKs do I need?
+
+The En Route SDK contains the interfaces for Enterprise use cases. If your app is for employees handling Tasks or Pickups, you'll be using the En Route SDK.
+
+The Core SDK is required for all use cases. It handles communication with Glympse servers, location, and battery management, etc.
 
 ## Installing
 
@@ -12,9 +20,9 @@ repositories {
 Add this dependency to your build.gradle
 ```
 dependencies {
-    // Glympse Core SDK
+    // Glympse Core SDK (required)
     implementation 'com.glympse:glympseapi:2.+'
-    // Glympse En Route SDK
+    // Glympse En Route SDK (for Enterprise customers)
     implementation 'com.glympse:enrouteapi:2.+'
     
     // Optional - Glympse Push library
