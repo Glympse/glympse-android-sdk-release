@@ -3,10 +3,10 @@
   <groupId>com.glympse</groupId>
   <artifactId>glympseapi-controls</artifactId>
   <versioning>
-    <release>2.101.203</release>
+    <release>2.102.204</release>
     <versions>
-      <version>2.101.203</version>
+      <version>2.102.204</version>
     </versions>
-    <lastUpdated>20210316193712</lastUpdated>
+    <lastUpdated>20210405195711</lastUpdated>
   </versioning>
 </metadata>
