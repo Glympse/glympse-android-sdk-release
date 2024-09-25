@@ -3,10 +3,10 @@
   <groupId>com.glympse</groupId>
   <artifactId>glympseapi-contacts</artifactId>
   <versioning>
-    <release>2.108.274</release>
+    <release>2.108.275</release>
     <versions>
-      <version>2.108.274</version>
+      <version>2.108.275</version>
     </versions>
-    <lastUpdated>20240918130430</lastUpdated>
+    <lastUpdated>20240925194316</lastUpdated>
   </versioning>
 </metadata>
