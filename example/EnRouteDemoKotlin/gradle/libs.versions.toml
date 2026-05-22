@@ -1,0 +1,31 @@
+[versions]
+agp = "9.2.1"
+coilCompose = "2.7.0"
+coreKtx = "1.18.0"
+firebaseMessaging = "25.0.2"
+material = "1.14.0"
+activityKtx = "1.13.0"
+constraintlayout = "2.2.1"
+kotlin = "2.3.21"
+glympse = "2.111.306"
+navigation = "2.9.8"
+accompanistPermissions = "0.37.3"
+
+[libraries]
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+coil-compose = { module = "io.coil-kt:coil-compose", version.ref = "coilCompose" }
+firebase-messaging = { module = "com.google.firebase:firebase-messaging", version.ref = "firebaseMessaging" }
+material = { group = "com.google.android.material", name = "material", version.ref = "material" }
+androidx-activity-ktx = { group = "androidx.activity", name = "activity-ktx", version.ref = "activityKtx" }
+androidx-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayout" }
+glympse = { group = "com.glympse", name = "glympseapi", version.ref = "glympse" }
+glympse-push = { group = "com.glympse", name = "glympseapi-push", version.ref = "glympse" }
+glympse-enroute = { group = "com.glympse", name = "enrouteapi", version.ref = "glympse" }
+glympse-toolbox = { group = "com.glympse", name = "glympseapi-toolbox", version.ref = "glympse" }
+androidx-navigation-runtime-ktx = { group = "androidx.navigation", name = "navigation-runtime-ktx", version.ref = "navigation" }
+androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigation" }
+accompanist-permissions = { module = "com.google.accompanist:accompanist-permissions", version.ref = "accompanistPermissions" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
