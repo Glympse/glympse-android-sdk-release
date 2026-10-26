@@ -44,10 +44,10 @@ class MainActivity : ComponentActivity() {
         EnRouteWrapper.initAndStart(this)
         lifecycle.addObserver(lifecycleObserver)
         lifecycleObserver.onForeground = {
-            EnRouteWrapper.enroute?.isActive = true
+            EnRouteWrapper.setForeground(true)
         }
         lifecycleObserver.onBackground = {
-            EnRouteWrapper.enroute?.isActive = false
+            EnRouteWrapper.setForeground(false)
         }
         enableEdgeToEdge()
         setContent {

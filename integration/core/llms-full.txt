@@ -1,0 +1,173 @@
+# Glympse Core SDK for Android: API outline (llms-full.txt)
+
+Companion to AGENTS.md. This is an outline of the public API surface for the core platform. Kotlin sees `getX()`/`isX()`
+as properties; method names are otherwise identical in Java. `GArray<T>` is iterable. String constants are static
+methods (`GC.CONSENT_TYPE_SUBJECT()`); int constants are fields (`GC.INVITE_TYPE_LINK`). Verify exact signatures in
+the AAR before relying on an item here. Not covered: groups, cards, POIs, triggers, place search, chat, customer
+pickups, linked accounts, directions/route planning, map and UI controls.
+
+## 0. Packages
+- com.glympse.android.api: GlympseFactory, GGlympse, GC (constants), GE (events), GConfig, GConsentManager,
+  GUserManager, GUser, GUserTicket, GHistoryManager, GTicket, GInvite, GPlace, GLocationManager, GNetworkManager,
+  GBatteryManager, GEventListener, GEventSink, GImage, GTrack
+- com.glympse.android.core: GArray, GPrimitive, CoreFactory, CoreConstants (location state/permission constants),
+  GDrawable, GLocation, GLatLng
+- com.glympse.android.push: GlympseFCM (static helpers, optional artifact)
+
+## 1. Maven coordinates (group com.glympse, same version for all)
+- glympseapi (core), glympseapi-push (optional). Other optional artifacts exist (map, controls, contacts): not covered
+- Repo: https://raw.github.com/Glympse/glympse-android-sdk-release/master
+- Latest version: the <release> element of <repo>/com/glympse/glympseapi/maven-metadata.xml
+
+## 2. GlympseFactory (static)
+- createGlympse(Context, server, apiKey): GGlympse. Returns the RUNNING instance if one exists (ignores arguments).
+  An overload with a `prefix` exists but prefixes are not supported on Android
+- createTicket(durationMs, message, destination): GTicket (message/destination optional)
+- createInvite(type, name, address): GInvite; createInvite(type, subtype, name, address); createPublicInvite(name)
+- createRequest(requestTicket, invite): GTicket
+- createPlace(lat, lng, name): GPlace; createAddress(...); createImage(GDrawable)
+- createTrackBuilder(); account profile helpers (createPhoneAccountProfile, createEmailAccountProfile, ...)
+- Never implement model interfaces yourself; always obtain them from here or from the platform
+
+## 3. GGlympse (extends GEventSink: addListener / removeListener)
+Lifecycle and account:
+- start(): once per instance. Silently returns if server or API key is empty. Fires PLATFORM_STARTED synchronously
+- stop(): may be called from any thread (posted to the main thread); never from inside eventsOccurred. Instance dead after
+- isStarted(), isFirstLaunch() (valid right after creation; resets after logout()), hasUserAccount()
+- logout(): false while started. Wipes account, nickname, avatar, history, consent; next start creates a new account
+- login(GPrimitive profile): before first start only; recovers an existing account (profile from GlympseFactory helpers);
+  ignored if an account exists. confirmAccount(type, profile): sends a confirmation code, returns a sink
+- setActive(bool): reference counted; returns the count. start() resets it to 0. isActive()
+- getAccessToken(): short-lived; query each time; null until PLATFORM_LOGIN_SUCCEEDED
+- getTime(): server time in ms. getApiVersion(): "major.minor.build"
+Configuration BEFORE start() (none persisted): setHandler(GHandler) (custom concurrency; default is the creating
+thread's Looper), setSmsSendMode(SMS_SEND_MODE_*), enableSmsScraping(bool) (needs RECEIVE_SMS),
+setEtaMode(ETA_MODE_EXTERNAL default | INTERNAL), setRestoreHistory(bool, default false), setHistoryLookback(ms),
+allowSiblingTickets(bool, default false), enableInviteViewersTracking(bool), setBrand(String) (subcategory of the API
+key for invite branding)
+Managers (most are null before start): getConfig() and getConsentManager() work before start. After start:
+getUserManager(), getHistoryManager(), getLocationManager(), getNetworkManager(), getBatteryManager(),
+getDirectionsManager(), getGroupManager(), getCardManager(), getPoiManager(), ...
+Invites: decodeInvite(code, mode[, GInvite]): GEventSink; openUrl(message, mode, GInvite?): bool; extractInviteCodes(message)
+and getInviteAspect(code) are thread-safe; cleanupInviteCode, compareInviteCodes; viewTicket(GUserTicket): GTicket?
+Tickets: sendTicket(GTicket): bool; requestTicket(GTicket)
+Push: registerDeviceToken(token) / registerDeviceToken(type, token) (ignored until started), unregisterDeviceToken,
+hasValidDeviceToken, handleRemoteNotification(payload) (ignored until started)
+Debug: verify() (checks only the INTERNET permission), overrideLoggingLevels(file, debug), setLogReceiver(GLogReceiver),
+showDebugView()
+
+## 4. GConsentManager (available before start)
+- hasConsent(), getConsentState() (USER_CONSENT_NONE / NO / YES / EXEMPT strings)
+- exemptFromConsent(bool): before start(); not persisted
+- grantConsent(CONSENT_TYPE_SUBJECT() | CONSENT_TYPE_GUARDIAN(), partnerId >= 0): starts account creation if none
+- revokeConsent(partnerId)
+- Events (LISTENER_CONSENT): CONSENT_REQUIRED, CONSENT_SUCCEEDED, CONSENT_FAILED, CONSENT_REVOKE_SUCCEEDED,
+  CONSENT_REVOKE_FAILED, CONSENT_MANAGER_SYNCED, CONSENT_MANAGER_SYNC_FAILED
+- Constants: GC.PRIVACY_POLICY_URL(), GC.TERMS_AND_CONDITIONS_URL(); agreement text resource R.string.glympse_gdpr_message
+
+## 5. Events (GEventListener.eventsOccurred(glympse, listener, events, obj))
+`listener` is one of the LISTENER_* values; `events` is a bitmask. Constants live in GE (alias of GlympseEvents).
+LISTENER_PLATFORM (=1), on the platform
+- PLATFORM_STARTED, PLATFORM_FIRST_LAUNCH (only the very first start, and again after logout), PLATFORM_STOPPED
+- PLATFORM_ACCOUNT_CREATED (new anonymous account), PLATFORM_ACCOUNT_CREATE_FAILED (fatal: platform stops)
+- PLATFORM_LOGIN_SUCCEEDED (every start), PLATFORM_LOGIN_FAILED (fatal), PLATFORM_SESSION_FAILED (token expired; SDK
+  re-authenticates by itself)
+- PLATFORM_SYNCED_WITH_SERVER (once per instance), PLATFORM_TICKET_SYNC_COMPLETED (after every ticket sync)
+- PLATFORM_USER_ADDED / _REMOVED / _CHANGED / _LIST_REORDERED (obj: GUser); PLATFORM_LOCATION
+- PLATFORM_TICKET_ADDED / _REMOVED / _CHANGED / _LIST_REORDERED / PLATFORM_TICKET_ARRIVED (obj: GTicket)
+- PLATFORM_INVITE_TICKET, PLATFORM_INVITE_REQUEST (obj: GUserTicket)
+- PLATFORM_RATE_LIMITED (server said "rate_limited"; the request is not retried), PLATFORM_STATE_CHANGED (foreground/background change)
+LISTENER_INVITE (=2), on the sink returned by decodeInvite
+- INVITE_DECODED, INVITE_INVALID_CODE (obj: the invite code String)
+LISTENER_USER (=3), on a GUser
+- USER_NICKNAME_CHANGED, USER_ACTIVE_TICKET_CHANGED, USER_ACTIVE_TICKET_RESIGNING (still active ticket is readable),
+  USER_TICKET_ADDED, USER_TICKET_REMOVED (obj: GTicket), USER_AVATAR_UPLOADED, USER_AVATAR_NOT_UPLOADED
+LISTENER_TICKET (=4), on a GTicket (not fired for expired or sibling tickets, except TICKET_TRANSFERRED)
+- TICKET_CREATED (invite codes not assigned yet), TICKET_FAILED, TICKET_EXPIRED, TICKET_COMPLETED
+- TICKET_INVITE_CREATED (client-delivered invites), TICKET_INVITE_SENT (server-delivered), TICKET_INVITE_UPDATED (viewers,
+  fired periodically while watched), TICKET_INVITE_REMOVED, TICKET_INVITE_FAILED
+- TICKET_REQUEST_CREATED / _SENT / _FAILED
+- TICKET_FIRST_VIEWED, TICKET_INVALID_CODE, TICKET_ARRIVED
+- TICKET_DURATION_CHANGED, _MESSAGE_CHANGED, _DESTINATION_CHANGED, _TRACK_CHANGED, _ETA_CHANGED, _ROUTE_CHANGED,
+  _TRAVEL_MODE_CHANGED, _VISIBILITY_CHANGED
+- TICKET_DATA_APPENDED / _DATA_CLEARED (custom properties, obj: GDataEvent), TICKET_TRANSFERRED / _NOT_TRANSFERRED
+LISTENER_NETWORK (=5): NETWORK_START_FAILING, NETWORK_RECOVERED, NETWORK_PUSH_AVAILABILITY_CHANGED, ...
+LISTENER_BATTERY (=6): BATTERY_STATE_CHANGED. LISTENER_IMAGE (=7): IMAGE_CHANGED.
+LISTENER_LOCATION (=8): LOCATION_STATE_CHANGED, LOCATION_ACCURACY_AUTH_CHANGED. LISTENER_CONSENT (=28): see section 4.
+
+## 6. Users and history
+- GUserManager: getSelf(), getUsers() (index 0 is self), getStandaloneUsers(), findUserByUserId, findUserByInviteCode,
+  findTicketByInviteCode, startTracking(user)/stopTracking(user) (reference counted; start returns the count, -1 if the
+  user is unknown or self), startTrackingAll(), stopTrackingAll(forced), getTracking(), anyActiveTracked(),
+  setUserTrackingMode(USER_TRACKING_MODE_ACTIVE default | ALL), enablePersistence(bool, default on)
+- GUser: id, isSelf, nickname (setNickname), avatar (GImage, setAvatar(GDrawable)), location, active (GTicket),
+  activeStandalone, tickets, findTicketByInviteCode, stopWatching(). Avatars never download automatically: image.load()
+- GUserTicket (from PLATFORM_INVITE_TICKET/REQUEST): user, ticket, invite
+- GHistoryManager (your outgoing tickets): isSynced(), tickets, anyActive(), refresh(), findTicketByTicketId,
+  findTicketByInviteCode, enableCancellationTimer(bool, default off) + setCancellationTimeout(ms) (stop retrying ticket creation during a long
+  network outage; by default creation is retried until it succeeds)
+
+## 7. Tickets and invites
+- GTicket: id, code, state (TICKET_STATE_*), isMine, isSibling, isActive (own active tickets only), isCompleted, user,
+  invites, duration, startTime, expireTime, message, destination (GPlace), track, eta, route, travelMode,
+  isWatching, isSomeoneWatching
+  Mutators (sent tickets): modify(duration, message, destination), clear(message, destination), extend(ms),
+  expire() (same as modify with 0), addInvite, deleteInvite, canAddInvite, own() (take over a sibling ticket)
+  Custom data: appendData(partnerId, name, GPrimitive) (after TICKET_CREATED), getProperty / getPropertyData /
+  getPartnerData(partnerId)
+  Request tickets: setRequestEndTime(ms), getRequestTicket(), setRequestNoReply(bool)
+- GInvite: type, name, address, code, url (set once the invite exists), state (INVITE_STATE_*), createdTime, lastViewTime,
+  viewers, viewing, text (server-formatted message), error, setVisible(bool), setCreateOnly(bool), setRequestTicket,
+  initiateClientSideSend(), completeClientSideSend(bool)
+- Invite name/address by type: SMS (name optional; phone number required), EMAIL (optional; email required), FACEBOOK /
+  TWITTER (optional / optional), ACCOUNT (optional; Glympse user id required), GROUP (optional; group id or name
+  required), SHARE (app name; app signature required), APP (app name; addressee id optional), CLIPBOARD (blank),
+  LINK (app specific, optional)
+- Delivery: server sends EMAIL, social; SMS/LINK/CLIPBOARD/SHARE are client
+  delivered: wait for INVITE_STATE_NEEDTOSEND, call initiateClientSideSend (optional), deliver `invite.url`, then
+  completeClientSideSend(success)
+- Ticket lifetime: sendTicket makes the ticket ADDING and registers it in historyManager. Minimum duration 10 s;
+  default maximum 4 h (config.maximumTicketDuration). A ticket can be sent only once
+
+## 8. Config (persisted) and location
+- GConfig: setExpireOnArrival(EXPIRE_ON_ARRIVAL_NONE | NOTIFY (default) | AUTO), allowSpeedSharing(bool),
+  allowLocationSharing(bool), setDeleteAfterComplete, setActiveSharingNotificationMessage(String),
+  getMaximumTicketDuration(), getMaximumNicknameLength(), setDiagnosticDataEnabled(bool), setMetricDirections(bool),
+  getDeviceId(), save()
+- GLocationManager: getLocation(), startLocation()/stopLocation(forced), getLocationState() (CoreConstants LOCATION_STATE_
+  NOT_DETERMINED=1, DENIED=2, ACQUIRED=3, ERROR=4), getLocationPermission() (LOCATION_PERMISSION_ UNKNOWN=0, DISABLED=1,
+  WHILE_IN_USE=2, ALWAYS=3), getLocationAccuracyAuthorization() (LOCATION_ACCURACY_AUTH_FULL=0, REDUCED=1; full before
+  Android 12)
+- ETA: default ETA_MODE_EXTERNAL (you call ticket.updateEta/updateRoute); ETA_MODE_INTERNAL needs a destination.
+  Expire on arrival fires PLATFORM_TICKET_ARRIVED and TICKET_ARRIVED
+
+## 9. Constants (GC, alias of GlympseConstants)
+- INVITE_TYPE_*: UNKNOWN=0, ACCOUNT=1, EMAIL=2, SMS=3, TWITTER=4, FACEBOOK=5, LINK=6, GROUP=7, SHARE=8, CLIPBOARD=9,
+  EVERNOTE=10, APP=11
+- INVITE_STATE_*: NONE=0, SERVERSENDING=1, CLIENTSENDING=2, NEEDTOSEND=3, SUCCEEDED=4, DELETING=5, DELETED=6,
+  FAILED_TO_CREATE=7, FAILED_TO_SEND=8, FAILED_TO_DELETE=9
+- INVITE_MODE_*: DEFAULT=0 (view automatically), PROMPT_BEFORE_VIEWING=1, ACTIVATE_USER=2 (combine with DEFAULT:
+  starts tracking). INVITE_ASPECT_*: UNKNOWN, TICKET, REQUEST, CARD
+- TICKET_STATE_*: NONE, ADDING, INVALID, ACTIVE, EXPIRING, EXPIRED, DELETING, DELETED, FAILED_TO_CREATE, CANCELLED
+
+## 10. Flows with exact order
+A. First run: createGlympse -> addListener -> exemptFromConsent(true) (or consent UI + grantConsent) -> start ->
+   STARTED, FIRST_LAUNCH -> ACCOUNT_CREATED -> LOGIN_SUCCEEDED -> SYNCED. Relaunch: STARTED -> LOGIN_SUCCEEDED -> SYNCED.
+B. Send: SYNCED -> createTicket -> createInvite -> addInvite -> addListener -> sendTicket -> TICKET_CREATED ->
+   TICKET_INVITE_CREATED / _SENT -> (viewers: INVITE_UPDATED) -> modify/extend/expire -> TICKET_EXPIRED -> TICKET_COMPLETED.
+C. View: decodeInvite(code, DEFAULT | ACTIVATE_USER) -> PLATFORM_USER_ADDED -> USER_ACTIVE_TICKET_CHANGED -> ticket
+   events. With DEFAULT only, call userManager.startTracking(user). With PROMPT_BEFORE_VIEWING: PLATFORM_INVITE_TICKET ->
+   viewTicket(userTicket) -> startTracking(user).
+D. Foreground/background: onResume setActive(true); onPause setActive(false); one pair per transition.
+E. Reset: stop -> logout() -> new instance -> flow A (FIRST_LAUNCH again).
+
+## 11. Android manifest and permission matrix
+- Merged by the AAR: INTERNET, WAKE_LOCK, ACCESS_COARSE_LOCATION, ACCESS_FINE_LOCATION, FOREGROUND_SERVICE,
+  FOREGROUND_SERVICE_LOCATION; service com.glympse.android.hal.GlympseService (foregroundServiceType=location, not
+  exported); internal broadcast receivers for location and geofence updates
+- You add as needed: POST_NOTIFICATIONS (API 33+), ACCESS_NETWORK_STATE, SEND_SMS, READ_CONTACTS (before first start),
+  RECEIVE_SMS (only with enableSmsScraping)
+- Runtime request: COARSE+FINE together, before sending. The SDK polls for the grant every 15 s
+- Broadcasts to your package: com.glympse.android.hal.service.STARTED (service restarted; recreate the platform),
+  NotificationListener.INTENT_INVITE / INTENT_DATA (push arrived while the platform was not running)
+- Push (optional): glympse_fcm_application_id meta-data, provided by Glympse for your package name

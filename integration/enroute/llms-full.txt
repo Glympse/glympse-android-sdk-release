@@ -1,0 +1,192 @@
+# Glympse En Route SDK for Android: API outline (llms-full.txt)
+
+Companion to AGENTS.md. This is an outline of the public API surface. Kotlin sees `getX()`/`isX()`/`setX()` as properties (`m.selfAgent`, `m.isStarted`,
+`m.authenticationMode = ...`). `GArray<T>` is iterable (`.toList()` works). `GString` is `String`.
+Verify exact signatures in the AAR or the generated `G*.java` interfaces before relying on an item here.
+
+## 0. Packages
+- com.glympse.enroute.android.api: EnRouteFactory, GEnRouteManager, GTaskManager, GSessionManager, GPickupManager,
+  GAgentManager, GTask, GOperation, GSession, GPickup, GAgent, GOrganization, GOrgConfig, EnRouteConstants, EnRouteEvents
+- com.glympse.android.api: core platform types reached through the API (GTicket, GRoute, GTravelMode, ...)
+- com.glympse.android.core: CoreConstants (log levels, primitive types), GPrimitive (JSON-like value)
+- com.glympse.android.toolbox.listener: GListener, GSource (event subscription)
+- com.glympse.android.push: GlympseFCM (static helpers, optional artifact)
+
+## 1. Maven coordinates (group com.glympse, same version for all)
+- enrouteapi, glympseapi, glympseapi-toolbox, glympseapi-push (optional)
+- Repo: https://raw.github.com/Glympse/glympse-android-sdk-release/master
+- Latest version: the <release> element of <repo>/com/glympse/enrouteapi/maven-metadata.xml
+
+## 2. EnRouteFactory
+- createEnRouteManager(Context): GEnRouteManager
+
+## 3. GEnRouteManager (extends GSource: addListener / removeListener)
+Configuration (call BEFORE start(); ignored with a logged warning afterwards):
+- setAuthenticationMode(int) / getAuthenticationMode(): AUTH_MODE_NONE=0, CREDENTIALS=1, TOKEN=2
+- setBaseUrl(String) / getBaseUrl(): only for testing against a non-default host (for example Sandbox). Pass a bare
+  host such as s-api.enterprise.glympse.com (no scheme)
+- setSessionsGeofencesEnabled(bool), setIncludeRootFields(bool)
+- setVersion(label, "major.minor.build"): tags your app/library in diagnostics only (label is lower-case-dashed).
+  It does not affect LOGOUT_REASON_OLD_VERSION
+Lifecycle:
+- start(): bool. Fails if already started, if this instance was stopped before, or if mode is NONE and login is needed
+- stop(): stops the platform and releases all sub-managers, fires STOPPED, then unregisters listeners. Keeps the
+  stored login. Instance cannot be restarted
+- isStarted(), isLoginNeeded() (true when there is no valid token)
+- loginWithCredentials(user, pass): bool. Needs start() first and AUTH_MODE_CREDENTIALS. One login per manager
+- loginWithToken(token, expireTimeEpochMs): bool. Needs start() first and AUTH_MODE_TOKEN. Rejects empty tokens and
+  expiry times less than one hour ahead (epoch ms)
+- logout(reason): LOGOUT_REASON_*; clears the stored login, fires LOGGED_OUT, then stops the platform. Only
+  USER_ACTION also calls the server logout endpoint. No-op (logged) if already logged out
+- setActive(bool) / isActive(): reference counted foreground/background signal; keep calls reciprocal
+- refresh(): re-fetch data. Unneeded with push, or with the org's auto-refresh (OrgConfig shouldAutoRefresh, period
+  minimum 10 s, runs only while active). No-op until started, profile loaded and logged in
+Data:
+- getOrganization(): GOrganization, getSelfAgent(): GAgent, getEnRouteToken(): String
+- getTaskManager(), getSessionManager(), getPickupManager(), getAgentManager()
+- getGlympse(): the underlying core platform instance
+- getEnRouteHealthCheck(): checkLoggedInState(), checkSharingCompliance(), getEnRouteHealthReport()
+- getDiagnosticsCollector(): logEvent(...), logItem(...)
+- toggleOnShift(bool): bool; isOnShift()
+Push / notifications:
+- registerDeviceToken(type, token), handleRemoteNotification(payload)
+- setForegroundNotificationMessage(String) (Android; default "Glympse En Route is Active")
+- enableXoANotifications(bool) (Android; default enabled)
+Diagnostics:
+- overrideLoggingLevels(fileLevel, debugLevel) using CoreConstants levels (INFO=1, NOTICE=3, WARNING=4, ERROR=5,
+  NONE=7). Verbose levels are for debug builds only
+- setRemoteLoggingEnabled(bool), setDiagnosticDataEnabled(bool)
+- getSdkVersion(): "major.minor.build"
+
+## 4. Events (GListener.eventsOccurred(source, listener, events, param1, param2))
+`listener` selects the table; `events` is a bitmask. Constants live in EnRouteEvents.
+
+LISTENER_ENROUTE_MANAGER (=1), subscribe on the manager
+- ENROUTE_MANAGER_LOGIN_COMPLETED (successful logins only; failures arrive as LOGGED_OUT, even if some SDK
+  documentation mentions an error string for this event). Credentials mode: fires at
+  login success, before the profile loads. Token mode: fires after org and agent load
+- ENROUTE_MANAGER_LOGGED_OUT (param1: Long reason, a LOGOUT_REASON_*)
+- ENROUTE_MANAGER_STARTED, ENROUTE_MANAGER_STOPPED (instance unusable afterwards)
+- ENROUTE_MANAGER_SYNCED: the organization and agent profiles have synced (getOrganization / getSelfAgent are
+  populated). Tasks are NOT loaded yet: the initial task list arrives with TASKS_TASK_LIST_CHANGED
+- ENROUTE_MANAGER_SHOW_NOTIFICATION (param1: GPrimitive to display)
+- ENROUTE_MANAGER_AUTHENTICATION_NEEDED (after start() when there is no stored login, in either mode: show login UI
+  or supply a token. In token mode after sync it also means the token expired: supply a new one)
+- ENROUTE_MANAGER_ORG_CONFIG_UPDATED, ..._SELF_AGENT_UPDATED, ..._ORG_PREDEFINED_MESSAGES_UPDATED
+- ENROUTE_MANAGER_SHIFT_STARTED, ..._SHIFT_COMPLETED, ..._SHIFT_START_FAILED (param1: error),
+  ..._SHIFT_COMPLETE_FAILED (param1: error)
+- ENROUTE_MANAGER_LOCATION_ACCURACY_UPDATED
+
+LISTENER_TASKS (=2), subscribe on taskManager
+- TASKS_TASK_LIST_CHANGED (any add/remove/phase/refresh change; also delivers the INITIAL task list after SYNCED, so
+  re-read getTasks on every one, including the first)
+- TASKS_TASK_STARTED / TASKS_TASK_START_FAILED (param1: GTask)
+- TASKS_OPERATION_COMPLETED (param1: GOperation, param2: Long reason) / TASKS_OPERATION_COMPLETION_FAILED (GOperation).
+  GOperation.taskId (Long) names the task. Without push the local GTask can still read STARTED / phase "live" after
+  this event and no TASKS_TASK_LIST_CHANGED may follow: call refresh or update the row from this event
+- TASKS_TASK_PHASE_CHANGED (param1: GTask, param2: new phase)
+- TASKS_OPERATION_TICKET_CHANGED (GOperation, GTicket)
+- TASKS_TASK_METADATA_UPDATE_SUCCEEDED (GTask) / ..._FAILED (GTask, error)
+- TASKS_TASK_TRAVEL_MODE_CHANGED, _DURATION_CHANGED, _DESTINATION_CHANGED, _TRANSFERRED, _ROUTE_CHANGED
+- TASKS_TASK_CHAT_MESSAGES_CHANGED (GTask)
+- TASKS_TASK_CREATED / TASKS_TASK_CREATE_FAILED
+
+LISTENER_AGENTS (=3), subscribe on agentManager
+- AGENTS_AGENT_LIST_CHANGED, _AGENT_CREATED (GAgent), _AGENT_CREATION_FAILED (error), _AGENT_UPDATED (GAgent),
+  _AGENT_UPDATE_FAILED (error)
+
+LISTENER_SESSIONS (=4), subscribe on sessionManager
+- SESSIONS_SESSION_LIST_CHANGED, _STARTED, _START_FAILED, _COMPLETED, _COMPLETION_FAILED (GSession; failures add error)
+- SESSIONS_SESSION_ACTIVE_TASK_CHANGED, _ACTIVE_TASK_PHASE_CHANGED (GSession, GTask)
+- SESSIONS_SESSION_COMPLETION_DELAYED (GSession; minimum session duration), _ARRIVE_FAILED, _DEPART_FAILED,
+  _ACTIVE_TASK_ROUTE_UPDATED
+
+LISTENER_PICKUPS (=8), subscribe on pickupManager
+- PICKUPS_PICKUP_LIST_CHANGED, _ACCEPTED, _COMPLETED, _FAILED_TO_COMPLETE, _PHASE_UPDATED, _PHASE_UPDATE_FAILED,
+  _ASSIGNED, _ASSIGN_FAILED, _TICKET_AVAILABLE, _MESSAGES_CHANGED, _CHANGED, _CHAT_MESSAGES_CHANGED
+
+## 5. GTaskManager
+- getTasks(), getPendingTasks(), getActiveOperations(), findTaskById(Long), findOperationByTicket(GTicket).
+  getTasks is empty until the first TASKS_TASK_LIST_CHANGED after SYNCED
+- startTask(task) / startTask(task, duration): bool. False unless task.state == TASK_STATE_CREATED, task.operation is
+  null and the org profile is loaded. Sets TASK_STATE_STARTING until the server responds. Posts current location.
+  After TASKS_TASK_STARTED the phase is populated by the following update (push, or refresh without push); until then
+  it reads PHASE_PROPERTY_UNKNOWN ("unknown"). The duration unit is not documented (default is OrgConfig defaultDuration)
+- createTask(GPrimitive taskData, startAfterCreate): bool. False unless the self agent has the "manager" or "admin"
+  role. The payload schema is not covered here
+- setTaskPhase(task, phase): bool (posts current location). False if the phase is unchanged. Does not reject a task
+  that was never started: it changes the local phase only, the server keeps the task as not started. Start first.
+  ARRIVED is a separate, optional step; completeOperation can be called from LIVE
+- completeOperation(operation) / completeOperation(operation, TASK_COMPLETE_REASON_*): bool (posts current location)
+- addOrUpdateMetadataItem(task, key, GPrimitive), updateTaskConfirmationImages(taskId, GPrimitive)
+- setTravelModeForTask(task, mode) / getTravelModeForTask(task): EnRouteConstants.TRAVEL_MODE_*()
+- sendMessage(task, text) / sendMessage(task, text, predefinedMessageId): bool
+- setFetchCompletedTasks(bool): before start(); default false. With false, a completed task disappears from getTasks
+  on the next launch; with true it stays with state TASK_STATE_COMPLETED (5)
+- saveManualSortOrder(GPrimitive array of Long, null clears) / getManualSortOrder()
+- setAutoStartTasksAfterAutoCompletion(bool): not persisted; order tasks first
+- refresh()
+
+## 6. GSessionManager / GPickupManager / GAgentManager
+- Sessions (only started when OrgConfig isSessionModeEnabled): getSessions(), anyActiveSessions(), findSessionById,
+  startSession, arriveTaskForSession(session, task), departTaskForSession(session, task, statusCode),
+  completeSession, refresh, isStarted
+- Pickups: getPickups(), getUnassignedPickups(), getMyPickups(), findPickupById(String), claimPickup, unclaimPickup,
+  completePickup, setPickupPhase, sendMessage (two overloads), refresh
+- Agents: getAgents(), findAgentById, createAgent(username, name, password), updateAgentName/Password/Avatar/Roles/Tags,
+  deleteAgent, submitAgentFeedback(GPrimitive), refresh. (Role requirements are enforced by the server)
+
+## 7. Models (read-only getters)
+- Types: id is Long on GTask, GOrganization, GAgent, and GOperation.taskId; GPickup ids are String. String getters
+  are nullable in Kotlin; GArray is iterable (toList() works)
+- GTask: id, state (TASK_STATE_*), phase, description, foreignId, agentId, dueTime, arrivedTime, completedTime
+  (epoch ms, <=0 when unset), operation (nullable), ticket, metadata, tags, confirmationImages, cardId, chatRoomId
+  metadata entries are GPrimitive objects: "n" = field name (string), "v" = field value (GPrimitive)
+- GOperation: id, state (OPERATION_STATE_*), startTime, taskId, ticketId, ticket, inviteUrl, inviteCode;
+  setTicketEta(ms), setTicketVisible(String), isTicketVisible, applyTicketMetadata
+- GSession: id, state (SESSION_STATE_*), description, tasks, activeTask, activeTaskIndex, startTime, completedTime,
+  completionReason (SESSION_COMPLETION_REASON_*), isCancelled
+- GPickup: id (String), phase, description, dueTime, arrivedTime, completedTime, agentId, customerName,
+  customerTicket, orderItems, messages, manualEta, notes, chatRoomId
+- GAgent: id, name, displayName, email, roles (GArray<String>; a manager test agent reads "agent, manager"), tags,
+  glympseAvatarUrl, isOnShift, defaultTravelMode
+- GOrganization: id, name, adminEmail, orgType (ORG_TYPE_*), config, predefinedMessages, tags, baseLocation
+- GOrgConfig: large read-only flag/phase set. Useful: initialPhase, initialTrackingPhase, arrivalPhase, finalPhase,
+  completionPhases, defaultTravelMode, areShiftsEnabled, isPickupEnabled, isSessionModeEnabled,
+  isPhotoUploadEnabled, isSignatureUploadEnabled, pickerDisabledTaskPhases, sessionControlMode (SESSION_CONTROL_MODE_*)
+
+## 8. Constants (EnRouteConstants)
+- AUTH_MODE_*, TASK_STATE_* (CREATED=1, STARTING=2, STARTED=3, FAILED_TO_START=4, COMPLETED=5), OPERATION_STATE_*,
+  SESSION_STATE_*, TASK_COMPLETE_REASON_*
+- LOGOUT_REASON_* emitted by the SDK: USER_ACTION=1 (logout() called), OLD_VERSION=2 (SDK build older than the org
+  minimum: upgrade the SDK), INVALID_CREDENTIALS=3, INVALID_TOKEN=4, SERVER_ERROR=6 (unrecoverable server error).
+  INVALID_TOKEN: credentials mode with an expired/invalid stored token; token mode before first sync; or the agent
+  profile fails to load or belongs to a different agent
+- LOGOUT_REASON_* defined but never emitted: UNKNOWN=0, LOCATION_SERVICES_UNAVAILABLE=5, INVALID_SUBSCRIPTION=7,
+  APP_FLAVOR_MISMATCH=8
+- Phases (functions returning String): PHASE_PROPERTY_UNKNOWN, PRE, ETA, NEW, LIVE, ARRIVED, FEEDBACK, COMPLETING,
+  COMPLETED, NOT_COMPLETED, CANCELLED, READY, SCHEDULED, QUASI
+- TRAVEL_MODE_DRIVING/WALKING/TRANSIT/BICYCLE, CONFIRMATION_IMAGE_NONE/SIGNATURE/PHOTO,
+  ORG_TYPE_PICKUP/PRO/ASSET_TRACKING, SESSION_CONTROL_MODE_MANUAL/SHUTTLE_SERVICE/FOOD_DELIVERY
+
+## 9. Flows with exact order
+A. Cold start: create -> setAuthenticationMode -> addListener -> start -> STARTED -> stored login?
+   no: AUTHENTICATION_NEEDED -> login UI -> loginWith* -> LOGIN_COMPLETED -> SYNCED.
+   yes: no auth event; STARTED, then SYNCED after the stored session resumes, then TASKS_TASK_LIST_CHANGED.
+B. Tasks: SYNCED (profiles ready) -> taskManager.addListener -> TASKS_TASK_LIST_CHANGED -> read tasks -> startTask ->
+   TASK_STARTED (phase populates via push or refresh; "unknown" until then) -> setTaskPhase(LIVE) ->
+   TASK_PHASE_CHANGED -> (optional setTaskPhase(ARRIVED)) -> completeOperation(task.operation) ->
+   OPERATION_COMPLETED. Without push, also call refresh, or update the row from the OPERATION_COMPLETED event,
+   because the local task can lag.
+C. Background/foreground: onResume setActive(true); onPause setActive(false); one pair per transition.
+D. Logout and re-login: logout(USER_ACTION) -> LOGGED_OUT -> STOPPED -> new manager -> flow A.
+   stop() instead keeps the stored login (next launch resumes); the instance still cannot be reused.
+E. Token auth: mode TOKEN before start; start; on AUTHENTICATION_NEEDED call loginWithToken(token, nowMs + lifetimeMs).
+   At runtime an expired token fires AUTHENTICATION_NEEDED again (SDK paused, failed calls retried after the new
+   token). On LOGOUT_REASON_INVALID_TOKEN the instance is stopped: fetch a token and create a new manager.
+
+## 10. Permission matrix (Android)
+- Foreground location: ACCESS_COARSE_LOCATION + ACCESS_FINE_LOCATION (one request)
+- Background location: ACCESS_BACKGROUND_LOCATION (API 29+, separate request after foreground; app-settings screen on 11+)
+- Notifications: POST_NOTIFICATIONS (API 33+)
+- Merged by the AAR: INTERNET, WAKE_LOCK, FOREGROUND_SERVICE, FOREGROUND_SERVICE_LOCATION
